@@ -6,7 +6,7 @@ import {
   formatPercent,
   formatStateValue,
 } from "../../src/utils";
-import { _401k_maximum_contribution_individual } from "../../src/utils/constants";
+import { _401k_maximum_contribution_individual, _401k_maximum_contribution_total } from "../../src/utils/constants";
 import styles from "../../styles/Retirement.module.scss";
 
 /**
@@ -22,8 +22,11 @@ function Frontload() {
   const [_401kMaximum, change401kMaximum] = React.useState(
     _401k_maximum_contribution_individual
   );
-  const [numberOfPayPeriods, changeNumberOfPayPeriods] = React.useState(26);
-  const [numberOfPayPeriodsSoFar, changeNumberofPayPeriodsSoFar] =
+  const [_401kMaximumT, change401kMaximumT] = React.useState(
+    _401k_maximum_contribution_total
+  );
+  const [numberOfPayPeriods, changeNumberOfPayPeriods] = React.useState(24);
+  const [numberOfPayPeriodsSoFar, changeNumberOfPayPeriodsSoFar] =
     React.useState(0);
   const [amountContributedSoFar, changeAmountContributedSoFar] =
     React.useState(0);
@@ -32,11 +35,14 @@ function Frontload() {
     React.useState(5);
   const [maxContributionFromPaycheck, changeMaxContributionFromPaycheck] =
     React.useState(90);
-  const [effectiveEmployerBase, changeEffectiveEmployerBase] = React.useState(0)
-  const [effectiveEmployerMatch, changeEffectiveEmployerMatch] = React.useState(5)
-    
+  const [effectiveEmployerBase, changeEffectiveEmployerBase] = React.useState(0);
+  const [effectiveEmployerMatch, changeEffectiveEmployerMatch] = React.useState(5);
+  const [desiredTotalAfterTaxContribution, changeDesiredTotalAfterTaxContribution] = React.useState(_401k_maximum_contribution_total - _401k_maximum_contribution_individual);
+
   const [_401kAutoCap, change401kAutoCap] = React.useState(false);
-  const [showEmployerMatchInTable, changeShowEmployerMatchInTable] = React.useState(false);
+  const [employerMatches, changeEmployerMatches] = React.useState(false);
+  const [onlyIntegerPercentageContribution, changeOnlyIntegerPercentageContribution] = React.useState(false);
+  const [allowAfterTaxContributions, changeAllowAfterTaxContributions] = React.useState(false);
 
   const payPeriodAlreadyPassedIcon = "\u203E"; // overline
   const payPeriodAlreadyPassedText = payPeriodAlreadyPassedIcon + " Pay period has already passed";
@@ -81,9 +87,7 @@ function Frontload() {
     );
   }
 
-  // console.log(numberOfMaxContributions + " = " +
-  // amountContributedSoFar + " - " + _401kMaximum + " + (" + contributionAmountForFullMatch + " * (" + numberOfPayPeriods + " - " + numberOfPayPeriodsSoFar + ")) / (" + contributionAmountForFullMatch + " - " + maxContributionAmount + ")");
-  const singleContributionPercent = Math.floor(
+  const singleContributionPercentT =
     ((_401kMaximum -
       (amountContributedSoFar +
         numberOfMaxContributions * maxContributionAmount +
@@ -94,10 +98,14 @@ function Frontload() {
           contributionAmountForFullMatch)) /
       salary) *
       numberOfPayPeriods *
-      100
-  );
+      100;
+  const singleContributionPercent = onlyIntegerPercentageContribution ? Math.floor(singleContributionPercentT) : singleContributionPercentT;
+
   const singleContributionAmount =
     (singleContributionPercent / 100) * payPerPayPeriod;
+
+  let maxEmployerMatch = effectiveEmployerBase/100 * salary + effectiveEmployerMatch/100 * salary;
+  let afterTaxContributionMax = _401k_maximum_contribution_total - _401k_maximum_contribution_individual - maxEmployerMatch;
 
   // data for table
   const table_rows: any[][] = [];
@@ -105,6 +113,9 @@ function Frontload() {
   let contributionAmount = 0;
   let cumulativeAmountIndividual = 0;
   let employerAmount = 0;
+  let totalContributionCapacity = afterTaxContributionMax;
+  let afterTaxContributionAmount = 0;
+  let cumulativeAmountIndividualWithAfterTax = 0;
   let cumulativeAmountTotal = 0;
 
   for (let i = 0; i < numberOfPayPeriods; i++) {
@@ -114,7 +125,7 @@ function Frontload() {
     // base cases to just insert 0 and existing contributions if periods have already passed
     if (i < numberOfPayPeriodsSoFar - 1) {
       concatKey += payPeriodAlreadyPassedIcon;
-      table_rows.push([concatKey, payPerPayPeriod, 0, 0, 0, 0, 0]);
+      table_rows.push([concatKey, payPerPayPeriod, 0, 0, 0, 0, 0, 0, 0]);
       continue;
     } else if (i == numberOfPayPeriodsSoFar - 1) {
       concatKey += payPeriodAlreadyPassedIcon;
@@ -125,6 +136,8 @@ function Frontload() {
         amountContributedSoFar,
         amountContributedSoFar,
         0,
+        amountContributedSoFar,
+        amountContributedSoFar,
         amountContributedSoFar,
       ]);
       continue;
@@ -142,11 +155,13 @@ function Frontload() {
       contributionPercent = singleContributionPercent / 100;
       contributionAmount = singleContributionAmount;
     }
+    totalContributionCapacity = i != 0 ? totalContributionCapacity - table_rows[i - 1][6] : totalContributionCapacity;
+    afterTaxContributionAmount = Math.min(maxContributionAmount - contributionAmount, totalContributionCapacity);
 
     // if 401k auto caps, we're at the last row, contribution would not equal max, and new contribution won't exceed max allowed
     // set contribution to max out
-    if (_401kAutoCap && 
-      i == numberOfPayPeriods - 1 && 
+    if (_401kAutoCap &&
+      i == numberOfPayPeriods - 1 &&
       contributionAmount != _401k_maximum_contribution_individual - table_rows[i - 1][4] &&
       (_401k_maximum_contribution_individual - table_rows[i - 1][4]) / payPerPayPeriod * 100 <= maxContributionFromPaycheck) {
       contributionAmount = _401k_maximum_contribution_individual - table_rows[i - 1][4];
@@ -196,8 +211,12 @@ function Frontload() {
     let employerBaseAmount = effectiveEmployerBase * payPerPayPeriod / 100;
     let employerMatchAmount = effectiveEmployerMatch * payPerPayPeriod / 100;
     employerAmount = employerBaseAmount + Math.min(contributionAmount, employerMatchAmount);
-    cumulativeAmountTotal = i == 0 ? 
-      contributionAmount + employerAmount : table_rows[i-1][6] + contributionAmount + employerAmount;
+
+    cumulativeAmountIndividualWithAfterTax = i == 0 ?
+      contributionAmount + afterTaxContributionAmount : table_rows[i-1][7] + contributionAmount + afterTaxContributionAmount;
+
+    cumulativeAmountTotal = i == 0 ?
+      contributionAmount + afterTaxContributionAmount + employerAmount : table_rows[i-1][8] + contributionAmount + afterTaxContributionAmount + employerAmount;
 
     // row values: key, compensation, match, contribution, cumulative
     table_rows.push([
@@ -207,6 +226,8 @@ function Frontload() {
       contributionAmount,
       cumulativeAmountIndividual,
       employerAmount,
+      afterTaxContributionAmount,
+      cumulativeAmountIndividualWithAfterTax,
       cumulativeAmountTotal
     ]);
   }
@@ -236,16 +257,25 @@ function Frontload() {
       changeFunction === changeNumberOfPayPeriods &&
       value <= numberOfPayPeriodsSoFar
     ) {
-      changeNumberofPayPeriodsSoFar(value - 1);
+      changeNumberOfPayPeriodsSoFar(value - 1);
       if (value === 1) {
         changeAmountContributedSoFar(0);
       }
     }
-    if (changeFunction === changeNumberofPayPeriodsSoFar) {
+
+    if (changeFunction === changeNumberOfPayPeriodsSoFar) {
       if (value === 0) {
-        changeAmountContributedSoFar(0);        
+        changeAmountContributedSoFar(0);
       }
     }
+
+    if (changeFunction === change401kMaximumT) {
+      changeDesiredTotalAfterTaxContribution(value - _401k_maximum_contribution_individual - (effectiveEmployerBase + effectiveEmployerMatch)/100 * salary);
+    }
+    if (changeFunction === change401kMaximum) {
+      changeDesiredTotalAfterTaxContribution(_401kMaximumT - value - (effectiveEmployerBase + effectiveEmployerMatch)/100 * salary);
+    }
+
     changeFunction(value);
   };
 
@@ -270,6 +300,14 @@ function Frontload() {
     } else if (value > max) {
       value = max;
     }
+
+    if (changeFunction === changeEffectiveEmployerBase) {
+      changeDesiredTotalAfterTaxContribution(_401kMaximumT - _401k_maximum_contribution_individual - (value + effectiveEmployerMatch)/100 * salary);
+    }
+    if (changeFunction === changeEffectiveEmployerMatch) {
+      changeDesiredTotalAfterTaxContribution(_401kMaximumT - _401k_maximum_contribution_individual - (effectiveEmployerBase + value)/100 * salary);
+    }
+
     changeFunction(value);
   };
 
@@ -280,7 +318,7 @@ function Frontload() {
       <main className={styles.main}>
         <h1>401k Frontload Calculator</h1>
         <p>
-          Here we will maximize your 401k contributions by frontloading while ensuring minimum contributions throughout the year.
+          This calculator maximizes your 401k contributions by frontloading while ensuring minimum contributions throughout the year.
         </p>
       </main>
 
@@ -317,7 +355,7 @@ function Frontload() {
               onChange={(e) =>
                 updateAmount(
                   e,
-                  changeNumberofPayPeriodsSoFar,
+                  changeNumberOfPayPeriodsSoFar,
                   0,
                   numberOfPayPeriods - 1
                 )
@@ -340,7 +378,7 @@ function Frontload() {
 
           <Form.Label>401k Maximum for Individual Contribution</Form.Label>
           <TooltipOnHover
-            text="The maximum in 2023 is $22500. You can decrease this if you have contributed to another 401k."
+            text="The maximum in 2023 is $22500. Decrease this if you have contributed to another 401k."
             nest={
               <InputGroup className="mb-3 w-100">
                 <InputGroup.Text>$</InputGroup.Text>
@@ -353,11 +391,20 @@ function Frontload() {
             }
           />
 
+          <TooltipOnHover
+            text="Check this if your 401k only allows integer percentage contributions."
+            nest={
+              <InputGroup className="mb-3 w-80">
+              <Form.Check type="checkbox" onChange={() => changeOnlyIntegerPercentageContribution(!onlyIntegerPercentageContribution)} label="401k only allows integer percentage contributions" checked={onlyIntegerPercentageContribution} />
+              </InputGroup>
+            }
+          />
+
           <Form.Label>
             Minimum Desired Paycheck Contribution
           </Form.Label>
           <TooltipOnHover
-            text="% of income between 0 and 100. This is what you want to ensure you get a 401k match per paycheck."
+            text="% of income between 0 and 100. This is what you want to ensure you get a 401k match per paycheck. You'll want to set a minimum if your employer match is calculated on a pay-period basis instead of an annual basis."
             nest={
               <InputGroup className="mb-3 w-100">
                 <Form.Control
@@ -376,7 +423,7 @@ function Frontload() {
             Maximum Paycheck Contribution
           </Form.Label>
           <TooltipOnHover
-            text="% of income between 0 and 100. This is the maximum amount you are comfortable or are allowed to contribute."
+            text="% of income between 0 and 100. This is the maximum amount you are comfortable or allowed to contribute."
             nest={
               <InputGroup className="mb-3 w-100">
                 <Form.Control
@@ -401,14 +448,24 @@ function Frontload() {
           />
 
           <TooltipOnHover
-            text="Check this to show employer match in table. This tool does not cap the match to the true 401k limits."
+            text="Check this if your employer matches your contributions. This tool does not limit the match to the true 401k limits."
             nest={
               <InputGroup className="mb-3 w-50">
-              <Form.Check type="checkbox" onChange={() => changeShowEmployerMatchInTable(!showEmployerMatchInTable)} label="Show Employer Match" checked={showEmployerMatchInTable} />
+              <Form.Check type="checkbox" onChange={() => {
+                changeEmployerMatches(!employerMatches);
+                if (employerMatches) {
+                  changeEffectiveEmployerBase(0);
+                  changeEffectiveEmployerMatch(0);
+                }
+                let desired = employerMatches ? _401kMaximumT - _401k_maximum_contribution_individual : _401kMaximumT - _401k_maximum_contribution_individual - ((effectiveEmployerBase + effectiveEmployerMatch)/100 * salary);
+                changeDesiredTotalAfterTaxContribution(desired);
+              }}
+                label="Employer Matches"
+                checked={employerMatches} />
               </InputGroup>
             }
           />
-          {showEmployerMatchInTable && 
+          {employerMatches &&
           <FormGroup>
             <Form.Label>
               Employer 401k Base Contribution
@@ -427,7 +484,7 @@ function Frontload() {
                   <InputGroup.Text>%</InputGroup.Text>
                 </InputGroup>
               }
-            /> 
+            />
             <Form.Label>
               Employer 401k Match
             </Form.Label>
@@ -445,9 +502,59 @@ function Frontload() {
                   <InputGroup.Text>%</InputGroup.Text>
                 </InputGroup>
               }
-            /> 
+            />
+            <Form.Label>
+              Employer Total Contribution
+            </Form.Label>
+            <InputGroup className="mb-3 w-100">
+              <InputGroup.Text>$</InputGroup.Text>
+              <Form.Control
+                disabled={true}
+                type="number" onWheel={e => e.currentTarget.blur()}
+                value={formatStateValue((effectiveEmployerBase + effectiveEmployerMatch)/100 * salary)}
+              />
+            </InputGroup>
           </FormGroup>}
 
+          <TooltipOnHover
+            text="Check this if your 401k plan allows after-tax contributions."
+            nest={
+              <InputGroup className="mb-3 w-50">
+              <Form.Check type="checkbox" onChange={() => changeAllowAfterTaxContributions(!allowAfterTaxContributions)} label="Allow after-tax contributions" checked={allowAfterTaxContributions} />
+              </InputGroup>
+            }
+          />
+          {allowAfterTaxContributions &&
+          <FormGroup>
+            <Form.Label>Overall 401k Maximum Contribution</Form.Label>
+            <TooltipOnHover
+              text="The maximum in 2023 is $66000. This includes all employee and employer contributions. Decrease this if you have contributed to another 401k."
+              nest={
+                <InputGroup className="mb-3 w-100">
+                  <InputGroup.Text>$</InputGroup.Text>
+                  <Form.Control
+                    type="number" onWheel={e => e.currentTarget.blur()}
+                    value={formatStateValue(_401kMaximumT)}
+                    onChange={(e) => updateAmount(e, change401kMaximumT)}
+                  />
+                </InputGroup>
+              }
+            />
+            <Form.Label>Desired after-tax 401k contribution</Form.Label>
+            <TooltipOnHover
+              text="The total after-tax amount you want to contribute to your 401k."
+              nest={
+                <InputGroup className="mb-3 w-100">
+                  <InputGroup.Text>$</InputGroup.Text>
+                  <Form.Control
+                    type="number" onWheel={e => e.currentTarget.blur()}
+                    value={formatStateValue(desiredTotalAfterTaxContribution)}
+                    onChange={(e) => updateAmount(e, changeDesiredTotalAfterTaxContribution, 0, _401k_maximum_contribution_total - _401k_maximum_contribution_individual - (effectiveEmployerBase + effectiveEmployerMatch)/100 * salary)}
+                  />
+                </InputGroup>
+              }
+            />
+          </FormGroup>}
         </Form>
 
         <div className={styles.table}>
@@ -455,11 +562,12 @@ function Frontload() {
             <thead>
               <tr>
                 <th>Pay Period</th>
-                <th>Pay</th>
-                <th>Contribution %</th>
-                <th>Contribution Amount</th>
-                {showEmployerMatchInTable && <th> Employer Amount </th>}
-                <th>Cumulative Amount</th>
+                <th>Gross Pay ($)</th>
+                <th>Contribution (%)</th>
+                <th>Contribution ($)</th>
+                {employerMatches && <th>Employer Contribution ($)</th>}
+                {allowAfterTaxContributions && <th>After-tax Contribution ($)</th>}
+                <th>Cumulative Contributions ($)</th>
               </tr>
             </thead>
             <tbody>
@@ -467,14 +575,26 @@ function Frontload() {
                 <tr key={row[0]}>
                   <td className={styles.thicc}>{row[0]}</td>
                   <td>{formatCurrency(row[1])}</td>
-                  <td>{formatPercent(row[2])}</td>
+                  <td>{formatPercent(row[2], onlyIntegerPercentageContribution)}</td>
                   <td>{formatCurrency(row[3])}</td>
-                  {!showEmployerMatchInTable && <td>{formatCurrency(row[4])}</td>}
-                  {showEmployerMatchInTable && <td>{formatCurrency(row[5])}</td>}
-                  {showEmployerMatchInTable && <td>{formatCurrency(row[6])}</td>}
+                  {/* {!employerMatches && <td>{formatCurrency(row[4])}</td>} */}
+                  {employerMatches && <td>{formatCurrency(row[5])}</td>}
+                  {allowAfterTaxContributions && <td>{formatCurrency(row[6])}</td>}
+                  <td>{formatCurrency(row[8])}</td>
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr>
+                <td>Total</td>
+                <td>{formatCurrency(table_rows.reduce((a, c) => a + c[1], 0))}</td>
+                <td></td>
+                <td>{formatCurrency(table_rows.reduce((a, c) => a + c[3], 0))}</td>
+                {employerMatches && <td>{formatCurrency(table_rows.reduce((a, c) => a + c[5], 0))}</td>}
+                {allowAfterTaxContributions && <td>{formatCurrency(table_rows.reduce((a, c) => a + c[6], 0))}</td>}
+                <td>{formatCurrency(table_rows[table_rows.length-1][8])}</td>
+              </tr>
+            </tfoot>
           </Table>
           {payPeriodAlreadyPassedAlertHTML}
           {_401kMaxNotReachedAlertHTML}
